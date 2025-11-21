@@ -122,39 +122,46 @@ class TaskScheduler:
     
     def _create_task_dag(self, tasks: List[Task]) -> List[HeftTask]:
         """
-        Membuat DAG (Directed Acyclic Graph) dari list Task (namedtuple).
-        Struktur ini diperlukan oleh HEFTAlgorithm.
+        Membuat DAG dengan struktur 'Parallel Chains' (Rantai Paralel).
+        Alih-alih linear (0->1->2), kita buat 4 jalur terpisah agar bisa jalan berbarengan.
         
-        Kita akan mengadopsi DAG linear dari scheduler.py asli
-        dan biaya heterogen berdasarkan spesifikasi VM.
+        Contoh (num_chains=4):
+        Chain 1: Task 0 -> Task 4 -> Task 8...
+        Chain 2: Task 1 -> Task 5 -> Task 9...
+        Chain 3: Task 2 -> Task 6 -> Task 10...
+        Chain 4: Task 3 -> Task 7 -> Task 11...
         """
         heft_tasks = []
         num_tasks = len(tasks)
         
-        # Buat linear DAG: task i bergantung pada task i-1
+        # Kita set 4 chains agar sesuai dengan jumlah 4 VM yang tersedia
+        # Ini memberi peluang maksimal untuk setiap VM mendapat pekerjaan
+        num_chains = 4 
+        
         for i, task in enumerate(tasks):
-            # Tentukan pendahulu dan penerus berdasarkan ID tugas
-            predecessors = [tasks[i - 1].id] if i > 0 else []
-            successors = [tasks[i + 1].id] if i < num_tasks - 1 else []
+            # Tentukan predecessors (Tugas sebelumnya dalam rantai ini)
+            # Jika i < 4, maka dia adalah kepala rantai (tidak punya predecessor)
+            predecessors = [tasks[i - num_chains].id] if i >= num_chains else []
             
-            # Buat computation cost heterogen
+            # Tentukan successors (Tugas berikutnya dalam rantai ini)
+            successors = [tasks[i + num_chains].id] if i + num_chains < num_tasks else []
+            
+            # Hitung Computation Cost (Heterogen)
             # Cost = Beban Dasar / Jumlah Core CPU
             computation_cost = {}
             for vm in self.vms:
-                # task.cpu_load adalah beban dasar (misal: 10000 untuk indeks 1)
-                # vm.cpu_cores adalah 1, 2, 4, 8
-                # VM dengan core lebih banyak akan memiliki cost lebih rendah
+                # Semakin banyak core, semakin kecil cost (semakin cepat)
                 computation_cost[vm.name] = task.cpu_load / vm.cpu_cores
             
             heft_task_obj = HeftTask(
-                id=task.id, # Gunakan ID dari namedtuple Task
+                id=task.id,
                 computation_cost=computation_cost,
                 predecessors=predecessors,
                 successors=successors
             )
             heft_tasks.append(heft_task_obj)
         
-        print(f"Berhasil membuat DAG linear dengan {len(heft_tasks)} tasks untuk HEFT.")
+        print(f"Berhasil membuat DAG Paralel ({num_chains} chains) dengan {len(heft_tasks)} tasks.")
         return heft_tasks
     
     def run_heft_scheduler(self, tasks: List[Task]) -> Dict[int, str]:
