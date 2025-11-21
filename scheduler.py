@@ -1,68 +1,116 @@
 """
-Scheduler menggunakan algoritma HEFT untuk task scheduling
-Berinteraksi dengan server-server VM untuk eksekusi task
+Scheduler yang menggabungkan algoritma HEFT untuk penentuan jadwal
+dengan eksekutor asinkron paralel (mirip struktur skrip SHC).
 """
 
-import os
-import sys
-import requests
+import asyncio
+import httpx
 import time
+from datetime import datetime
 import csv
+import pandas as pd
+import sys
+import os
+from dotenv import load_dotenv
+from collections import namedtuple
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from dotenv import load_dotenv
-from heft_algorithm import HEFTAlgorithm, Task, ScheduleEvent
 
-# Load environment variables
+# Impor algoritma HEFT dari file yang ada
+from heft_algorithm import HEFTAlgorithm, Task as HeftTask, ScheduleEvent
+
+# --- Konfigurasi Lingkungan (dari skrip SHC) ---
+
 load_dotenv()
 
+VM_SPECS = {
+    'vm1': {'ip': os.getenv("VM1_IP"), 'cpu': 1, 'ram_gb': 1},
+    'vm2': {'ip': os.getenv("VM2_IP"), 'cpu': 2, 'ram_gb': 2},
+    'vm3': {'ip': os.getenv("VM3_IP"), 'cpu': 4, 'ram_gb': 4},
+    'vm4': {'ip': os.getenv("VM4_IP"), 'cpu': 8, 'ram_gb': 4},
+}
 
-@dataclass
-class ServerConfig:
-    """Konfigurasi server VM"""
-    ip: str
-    port: int
-    id: int
+VM_PORT = int(os.getenv('VM_PORT', 5000))
+DATASET_FILE = 'dataset.txt'
+RESULTS_FILE = 'heft_results.csv' # Diubah dari shc_results.csv
 
+# Definisi Tipe Data (dari skrip SHC)
+VM = namedtuple('VM', ['name', 'ip', 'cpu_cores', 'ram_gb'])
+Task = namedtuple('Task', ['id', 'name', 'index', 'cpu_load'])
+
+# --- Fungsi Helper & Definisi Task (dari skrip SHC) ---
+
+def get_task_load(index: int):
+    """Menghitung beban CPU berdasarkan indeks task."""
+    cpu_load = (index * index * 10000)
+    return cpu_load
+
+def load_tasks(dataset_path: str) -> list[Task]:
+    """Memuat daftar tugas dari file dataset."""
+    if not os.path.exists(dataset_path):
+        print(f"Error: File dataset '{dataset_path}' tidak ditemukan.", file=sys.stderr)
+        sys.exit(1)
+        
+    tasks = []
+    with open(dataset_path, 'r') as f:
+        for i, line in enumerate(f):
+            try:
+                index = int(line.strip())
+                if not 1 <= index <= 10:
+                    print(f"Peringatan: Task index {index} di baris {i+1} di luar rentang (1-10).")
+                    continue
+                
+                cpu_load = get_task_load(index)
+                task_name = f"task-{index}-{i}"
+                tasks.append(Task(
+                    id=i,
+                    name=task_name,
+                    index=index,
+                    cpu_load=cpu_load,
+                ))
+            except ValueError:
+                print(f"Peringatan: Mengabaikan baris {i+1} yang tidak valid: '{line.strip()}'")
+    
+    print(f"Berhasil memuat {len(tasks)} tugas dari {dataset_path}")
+    return tasks
+
+# --- Kelas TaskScheduler (Inti HEFT) ---
 
 class TaskScheduler:
     """
-    Task Scheduler menggunakan algoritma HEFT
+    Menggunakan algoritma HEFT untuk *menghasilkan* penugasan (assignment)
+    tugas ke VM.
     """
     
     def __init__(self):
         """Inisialisasi scheduler dengan konfigurasi dari .env"""
-        self.servers = self._load_server_config()
-        self.processors = [server.id for server in self.servers]
+        self.vms = self._load_vms()
+        self.processors = [vm.name for vm in self.vms] # Processor ID sekarang 'vm1', 'vm2', dst.
         self.communication_matrix = self._initialize_communication_matrix()
         
-    def _load_server_config(self) -> List[ServerConfig]:
-        """Load konfigurasi server dari environment variables"""
-        servers = []
-        port = int(os.getenv('VM_PORT', 5000))
-        
-        vm_configs = [
-            ('VM1_IP', 1),
-            ('VM2_IP', 2),
-            ('VM3_IP', 3),
-            ('VM4_IP', 4)
-        ]
-        
-        for vm_ip_env, server_id in vm_configs:
-            ip = os.getenv(vm_ip_env)
+    def _load_vms(self) -> List[VM]:
+        """Load konfigurasi VM dari VM_SPECS."""
+        vms = []
+        for name, spec in VM_SPECS.items():
+            ip = spec.get('ip')
             if ip:
-                servers.append(ServerConfig(ip=ip, port=port, id=server_id))
+                vms.append(VM(
+                    name=name,
+                    ip=ip,
+                    cpu_cores=spec.get('cpu', 1),
+                    ram_gb=spec.get('ram_gb', 1)
+                ))
         
-        if not servers:
-            raise ValueError("Tidak ada server yang dikonfigurasi. Pastikan file .env sudah diisi dengan benar.")
+        if not vms:
+            raise ValueError("Tidak ada server VM yang dikonfigurasi. Pastikan file .env sudah diisi dengan benar.")
         
-        print(f"Loaded {len(servers)} server(s): {[s.ip for s in servers]}")
-        return servers
+        print(f"Loaded {len(vms)} VM(s): {[vm.name for vm in vms]}")
+        return vms
     
     def _initialize_communication_matrix(self) -> Dict[tuple, float]:
         """
-        Inisialisasi communication matrix antar processor
-        Default: uniform communication cost
+        Inisialisasi communication matrix antar processor (VM).
+        Default: uniform communication cost.
         """
         matrix = {}
         for from_proc in self.processors:
@@ -72,278 +120,321 @@ class TaskScheduler:
                     matrix[(from_proc, to_proc)] = 1.0
         return matrix
     
-    def _load_dataset(self, filename: str = 'dataset.txt') -> List[int]:
+    def _create_task_dag(self, tasks: List[Task]) -> List[HeftTask]:
         """
-        Load dataset dari file
+        Membuat DAG (Directed Acyclic Graph) dari list Task (namedtuple).
+        Struktur ini diperlukan oleh HEFTAlgorithm.
         
-        Args:
-            filename: Nama file dataset
-            
-        Returns:
-            List of task values
+        Kita akan mengadopsi DAG linear dari scheduler.py asli
+        dan biaya heterogen berdasarkan spesifikasi VM.
         """
-        if not os.path.exists(filename):
-            raise FileNotFoundError(f"File {filename} tidak ditemukan. Buat file dataset.txt terlebih dahulu.")
-        
-        with open(filename, 'r') as f:
-            tasks = [int(line.strip()) for line in f if line.strip()]
-        
-        print(f"Loaded {len(tasks)} tasks from {filename}")
-        return tasks
-    
-    def _create_task_dag(self, task_values: List[int]) -> List[Task]:
-        """
-        Membuat DAG (Directed Acyclic Graph) dari task values
-        Untuk contoh sederhana, kita buat linear DAG atau dapat disesuaikan
-        
-        Args:
-            task_values: List of task values dari dataset
-            
-        Returns:
-            List of Task objects
-        """
-        tasks = []
-        num_tasks = len(task_values)
+        heft_tasks = []
+        num_tasks = len(tasks)
         
         # Buat linear DAG: task i bergantung pada task i-1
-        for i, value in enumerate(task_values):
-            predecessors = [i - 1] if i > 0 else []
-            successors = [i + 1] if i < num_tasks - 1 else []
+        for i, task in enumerate(tasks):
+            # Tentukan pendahulu dan penerus berdasarkan ID tugas
+            predecessors = [tasks[i - 1].id] if i > 0 else []
+            successors = [tasks[i + 1].id] if i < num_tasks - 1 else []
             
-            # Computation cost untuk setiap processor
-            # Rumus: endpoint² * 10000 (dimana endpoint adalah task value)
-            base_cost = (value ** 2) * 10000
+            # Buat computation cost heterogen
+            # Cost = Beban Dasar / Jumlah Core CPU
             computation_cost = {}
-            for server in self.servers:
-                computation_cost[server.id] = base_cost
+            for vm in self.vms:
+                # task.cpu_load adalah beban dasar (misal: 10000 untuk indeks 1)
+                # vm.cpu_cores adalah 1, 2, 4, 8
+                # VM dengan core lebih banyak akan memiliki cost lebih rendah
+                computation_cost[vm.name] = task.cpu_load / vm.cpu_cores
             
-            task = Task(
-                id=i,
+            heft_task_obj = HeftTask(
+                id=task.id, # Gunakan ID dari namedtuple Task
                 computation_cost=computation_cost,
                 predecessors=predecessors,
                 successors=successors
             )
-            tasks.append(task)
+            heft_tasks.append(heft_task_obj)
         
-        return tasks
+        print(f"Berhasil membuat DAG linear dengan {len(heft_tasks)} tasks untuk HEFT.")
+        return heft_tasks
     
-    def _execute_task_on_server(self, server: ServerConfig, task_value: int) -> Dict:
+    def run_heft_scheduler(self, tasks: List[Task]) -> Dict[int, str]:
         """
-        Mengirim request ke server untuk execute task
+        Menjalankan algoritma HEFT dan mengembalikan penugasan.
         
         Args:
-            server: ServerConfig object
-            task_value: Nilai task yang akan dieksekusi
+            tasks: List of Task (namedtuple) dari load_tasks
             
         Returns:
-            Response dari server
-        """
-        url = f"http://{server.ip}:{server.port}/execute"
-        
-        try:
-            response = requests.post(
-                url,
-                json={'value': task_value},
-                timeout=30
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"Error executing task on server {server.ip}: {e}")
-            return {'error': str(e), 'execution_time': None}
-    
-    def _execute_schedule(self, schedule: Dict[int, ScheduleEvent], 
-                         task_values: List[int]) -> Dict:
-        """
-        Mengeksekusi schedule yang telah dibuat
-        
-        Args:
-            schedule: Dictionary mapping task_id -> ScheduleEvent
-            task_values: List of task values
-            
-        Returns:
-            Dictionary berisi hasil eksekusi
-        """
-        # Sort schedule berdasarkan start_time
-        sorted_schedule = sorted(
-            schedule.items(),
-            key=lambda x: x[1].start_time
-        )
-        
-        execution_results = {}
-        actual_start_times = {}
-        actual_finish_times = {}
-        
-        print("\n=== Eksekusi Schedule ===")
-        
-        for task_id, event in sorted_schedule:
-            task_value = task_values[task_id]
-            server = next(s for s in self.servers if s.id == event.processor_id)
-            
-            # Wait sampai start_time
-            current_time = time.time()
-            wait_time = max(0, event.start_time - current_time)
-            if wait_time > 0:
-                print(f"Task {task_id} menunggu {wait_time:.2f} detik...")
-                time.sleep(wait_time)
-            
-            # Execute task
-            print(f"Task {task_id} (value={task_value}) dieksekusi di Server {server.id} ({server.ip})")
-            start_time = time.time()
-            
-            result = self._execute_task_on_server(server, task_value)
-            
-            finish_time = time.time()
-            execution_time = finish_time - start_time
-            
-            actual_start_times[task_id] = start_time
-            actual_finish_times[task_id] = finish_time
-            
-            execution_results[task_id] = {
-                'task_value': task_value,
-                'server_id': server.id,
-                'server_ip': server.ip,
-                'scheduled_start': event.start_time,
-                'scheduled_finish': event.finish_time,
-                'actual_start': start_time,
-                'actual_finish': finish_time,
-                'execution_time': execution_time,
-                'server_response': result
-            }
-            
-            print(f"  -> Selesai dalam {execution_time:.2f} detik")
-        
-        return {
-            'execution_results': execution_results,
-            'actual_start_times': actual_start_times,
-            'actual_finish_times': actual_finish_times
-        }
-    
-    def _save_results_to_csv(self, schedule: Dict[int, ScheduleEvent],
-                            execution_results: Dict, task_values: List[int],
-                            filename: str = 'result.csv'):
-        """
-        Menyimpan hasil scheduling ke CSV
-        
-        Args:
-            schedule: Dictionary mapping task_id -> ScheduleEvent
-            execution_results: Hasil eksekusi
-            task_values: List of task values
-            filename: Nama file output
-        """
-        with open(filename, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'Task ID',
-                'Task Value',
-                'Processor ID',
-                'Scheduled Start',
-                'Scheduled Finish',
-                'Actual Start',
-                'Actual Finish',
-                'Execution Time',
-                'Makespan'
-            ])
-            
-            makespan = max(event.finish_time for event in schedule.values())
-            
-            for task_id in sorted(schedule.keys()):
-                event = schedule[task_id]
-                exec_result = execution_results.get('execution_results', {}).get(task_id, {})
-                
-                writer.writerow([
-                    task_id,
-                    task_values[task_id],
-                    event.processor_id,
-                    f"{event.start_time:.2f}",
-                    f"{event.finish_time:.2f}",
-                    f"{exec_result.get('actual_start', 0):.2f}",
-                    f"{exec_result.get('actual_finish', 0):.2f}",
-                    f"{exec_result.get('execution_time', 0):.2f}",
-                    f"{makespan:.2f}"
-                ])
-        
-        print(f"\nHasil disimpan ke {filename}")
-    
-    def run(self, dataset_file: str = 'dataset.txt'):
-        """
-        Menjalankan scheduler dengan dataset
-        
-        Args:
-            dataset_file: Nama file dataset
+            Dictionary mapping {task_id: vm_name}
         """
         print("=" * 60)
-        print("HEFT Task Scheduler")
+        print("Menjalankan HEFT Task Scheduler")
         print("=" * 60)
         
-        # Load dataset
-        task_values = self._load_dataset(dataset_file)
+        # 1. Buat DAG yang dibutuhkan oleh HEFT
+        heft_tasks = self._create_task_dag(tasks)
         
-        # Buat DAG dari tasks
-        tasks = self._create_task_dag(task_values)
-        
-        # Inisialisasi HEFT algorithm
+        # 2. Inisialisasi HEFT algorithm
         heft = HEFTAlgorithm(
-            tasks=tasks,
+            tasks=heft_tasks,
             processors=self.processors,
             communication_matrix=self.communication_matrix
         )
         
-        # Jalankan scheduling
-        print("\n=== Phase 1: Task Prioritization ===")
+        # 3. Jalankan scheduling
+        print("\n=== Phase 1: Task Prioritization (HEFT) ===")
         schedule = heft.schedule_tasks()
         
-        # Tampilkan hasil scheduling
-        print("\n=== Hasil Scheduling ===")
+        # 4. Tampilkan hasil scheduling (opsional, untuk debug)
+        print("\n=== Hasil Scheduling (HEFT) ===")
         summary = heft.get_schedule_summary()
-        print(f"Makespan: {summary['makespan']:.2f}")
-        print(f"Total Tasks: {summary['total_tasks']}")
+        print(f"Perkiraan Makespan (HEFT): {summary['makespan']:.2f}")
         
-        print("\n=== Detail Schedule ===")
+        print("\n=== Detail Jadwal (HEFT) ===")
         for task_id in sorted(schedule.keys()):
             event = schedule[task_id]
             print(f"Task {task_id}: Processor {event.processor_id}, "
-                  f"Start={event.start_time:.2f}, Finish={event.finish_time:.2f}")
+                  f"Mulai={event.start_time:.2f}, Selesai={event.finish_time:.2f}")
         
-        print("\n=== Processor Loads ===")
-        for proc_id, loads in summary['processor_loads'].items():
-            total_time = sum(load['duration'] for load in loads)
-            print(f"Processor {proc_id}: {len(loads)} tasks, Total time: {total_time:.2f}")
+        # 5. Konversi schedule HEFT (timeline) ke assignment (penugasan)
+        # schedule = {task_id: ScheduleEvent(processor_id=...)}
+        # Kita butuh {task_id: vm_name}
+        assignment = {}
+        for task_id, event in schedule.items():
+            assignment[task_id] = event.processor_id
         
-        # Eksekusi schedule (jika server tersedia)
-        print("\n=== Eksekusi Schedule ===")
-        try:
-            execution_results = self._execute_schedule(schedule, task_values)
-            
-            # Simpan hasil ke CSV
-            self._save_results_to_csv(schedule, execution_results, task_values)
-            
-            # Hitung parameter analisis
-            print("\n=== Parameter Analisis ===")
-            actual_makespan = max(
-                exec_result.get('actual_finish', 0)
-                for exec_result in execution_results.get('execution_results', {}).values()
-            )
-            if actual_makespan > 0:
-                print(f"Actual Makespan: {actual_makespan:.2f}")
-                print(f"Scheduled Makespan: {summary['makespan']:.2f}")
-                print(f"Deviation: {abs(actual_makespan - summary['makespan']):.2f}")
-        except Exception as e:
-            print(f"Error saat eksekusi: {e}")
-            print("Menyimpan schedule tanpa hasil eksekusi...")
-            self._save_results_to_csv(schedule, {}, task_values)
+        print("\nPenugasan Tugas dari HEFT (akan dieksekusi secara paralel):")
+        # Tampilkan 10 pertama
+        for task_id in sorted(assignment.keys())[:10]:
+             print(f"  - Tugas {task_id} -> {assignment[task_id]}")
+        if len(assignment) > 10:
+            print("  - ... etc.")
 
+        return assignment
 
-def main():
-    """Main function"""
+# --- Eksekutor Tugas Asinkron (dari skrip SHC) ---
+
+async def execute_task_on_vm(task: Task, vm: VM, client: httpx.AsyncClient, 
+                             vm_semaphore: asyncio.Semaphore, results_list: list):
+    """
+    Mengirim request GET ke VM yang ditugaskan, dibatasi oleh semaphore VM.
+    Mencatat hasil dan waktu.
+    """
+    url = f"http://{vm.ip}:{VM_PORT}/task/{task.index}"
+    task_start_time = None
+    task_finish_time = None
+    task_exec_time = -1.0
+    task_wait_time = -1.0
+    
+    wait_start_mono = time.monotonic()
+    
     try:
-        scheduler = TaskScheduler()
-        scheduler.run()
+        async with vm_semaphore:
+            # Waktu tunggu selesai, eksekusi dimulai
+            task_wait_time = time.monotonic() - wait_start_mono
+            
+            print(f"Mengeksekusi {task.name} (idx: {task.id}) di {vm.name} (IP: {vm.ip})...")
+            
+            # Catat waktu mulai
+            task_start_mono = time.monotonic()
+            task_start_time = datetime.now()
+            
+            # Kirim request GET
+            response = await client.get(url, timeout=300.0) # Timeout 5 menit
+            response.raise_for_status()
+            
+            # Catat waktu selesai
+            task_finish_time = datetime.now()
+            task_exec_time = time.monotonic() - task_start_mono
+            
+            print(f"Selesai {task.name} (idx: {task.id}) di {vm.name}. Waktu: {task_exec_time:.4f}s")
+            
+    except httpx.HTTPStatusError as e:
+        print(f"Error HTTP pada {task.name} di {vm.name}: {e}", file=sys.stderr)
+    except httpx.RequestError as e:
+        print(f"Error Request pada {task.name} di {vm.name}: {e}", file=sys.stderr)
     except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        print(f"Error tidak diketahui pada {task.name} di {vm.name}: {e}", file=sys.stderr)
+        
+    finally:
+        if task_start_time is None:
+            task_start_time = datetime.now()
+        if task_finish_time is None:
+            task_finish_time = datetime.now()
+            
+        results_list.append({
+            "index": task.id,
+            "task_name": task.name,
+            "vm_assigned": vm.name,
+            "start_time": task_start_time,
+            "exec_time": task_exec_time,
+            "finish_time": task_finish_time,
+            "wait_time": task_wait_time
+        })
 
+# --- Fungsi Paska-Proses & Metrik (dari skrip SHC) ---
 
-if __name__ == '__main__':
-    main()
+def write_results_to_csv(results_list: list):
+    """Menyimpan hasil eksekusi ke file CSV."""
+    if not results_list:
+        print("Tidak ada hasil untuk ditulis ke CSV.", file=sys.stderr)
+        return
 
+    # Urutkan berdasarkan 'index' untuk keterbacaan
+    results_list.sort(key=lambda x: x['index'])
+
+    headers = ["index", "task_name", "vm_assigned", "start_time", "exec_time", "finish_time", "wait_time"]
+    
+    # Format datetime agar lebih mudah dibaca di CSV
+    formatted_results = []
+    min_start = min(item['start_time'] for item in results_list)
+    for r in results_list:
+        new_r = r.copy()
+        new_r['start_time'] = (r['start_time'] - min_start).total_seconds()
+        new_r['finish_time'] = (r['finish_time'] - min_start).total_seconds()
+        formatted_results.append(new_r)
+
+    formatted_results.sort(key=lambda item: item['start_time'])
+
+    try:
+        with open(RESULTS_FILE, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            writer.writerows(formatted_results)
+        print(f"\nData hasil eksekusi disimpan ke {RESULTS_FILE}")
+    except IOError as e:
+        print(f"Error menulis ke CSV {RESULTS_FILE}: {e}", file=sys.stderr)
+
+def calculate_and_print_metrics(results_list: list, vms: list[VM], total_schedule_time: float):
+    """Menghitung dan menampilkan metrik kinerja."""
+    try:
+        df = pd.DataFrame(results_list)
+    except pd.errors.EmptyDataError:
+        print("Error: Hasil kosong, tidak ada metrik untuk dihitung.", file=sys.stderr)
+        return
+    except ImportError:
+        print("Error: Library 'pandas' tidak ditemukan. Harap install pandas untuk menghitung metrik.", file=sys.stderr)
+        return
+
+    # Konversi kolom waktu
+    df['start_time'] = pd.to_datetime(df['start_time'])
+    df['finish_time'] = pd.to_datetime(df['finish_time'])
+    
+    # Filter 'failed' tasks (exec_time < 0)
+    success_df = df[df['exec_time'] > 0].copy()
+    
+    if success_df.empty:
+        print("Tidak ada tugas yang berhasil diselesaikan. Metrik tidak dapat dihitung.")
+        return
+
+    num_tasks = len(success_df)
+    
+    # Hitung metrik
+    total_cpu_time = success_df['exec_time'].sum()
+    total_wait_time = success_df['wait_time'].sum()
+    
+    avg_exec_time = success_df['exec_time'].mean()
+    avg_wait_time = success_df['wait_time'].mean()
+    
+    # Waktu mulai & selesai relatif terhadap awal
+    min_start = success_df['start_time'].min()
+    success_df['rel_start_time'] = (success_df['start_time'] - min_start).dt.total_seconds()
+    success_df['rel_finish_time'] = (success_df['finish_time'] - min_start).dt.total_seconds()
+    
+    avg_start_time = success_df['rel_start_time'].mean()
+    avg_finish_time = success_df['rel_finish_time'].mean()
+    
+    makespan = total_schedule_time # Waktu dari eksekusi pertama hingga terakhir
+    throughput = num_tasks / makespan if makespan > 0 else 0
+    
+    # Imbalance Degree (Degree of Imbalance)
+    vm_exec_times = success_df.groupby('vm_assigned')['exec_time'].sum()
+    max_load = vm_exec_times.max()
+    min_load = vm_exec_times.min()
+    avg_load = vm_exec_times.mean()
+    imbalance_degree = (max_load - min_load) / avg_load if avg_load > 0 else 0
+    
+    # Resource Utilization
+    total_available_cpu_time = 0
+    total_cores = sum(vm.cpu_cores for vm in vms)
+    total_available_cpu_time = makespan * total_cores
+    resource_utilization = total_cpu_time / total_available_cpu_time if total_available_cpu_time > 0 else 0
+
+    # Tampilkan Metrik
+    print("\n--- Hasil ---")
+    print(f"Total Tugas Selesai     : {num_tasks}")
+    print(f"Makespan (Waktu Total)  : {makespan:.4f} detik")
+    print(f"Throughput              : {throughput:.4f} tugas/detik")
+    print(f"Total CPU Time          : {total_cpu_time:.4f} detik")
+    print(f"Total Wait Time         : {total_wait_time:.4f} detik")
+    print(f"Average Start Time (rel): {avg_start_time:.4f} detik")
+    print(f"Average Execution Time  : {avg_exec_time:.4f} detik")
+    print(f"Average Finish Time (rel): {avg_finish_time:.4f} detik")
+    print(f"Imbalance Degree        : {imbalance_degree:.4f}")
+    print(f"Resource Utilization (CPU): {resource_utilization:.4%}")
+
+# --- Fungsi Main (Struktur dari SHC) ---
+
+async def main():
+    # 1. Inisialisasi
+    tasks = load_tasks(DATASET_FILE)
+    if not tasks:
+        print("Tidak ada tugas untuk dijadwalkan. Keluar.", file=sys.stderr)
+        return
+        
+    tasks_dict = {task.id: task for task in tasks}
+
+    # 2. Jalankan Algoritma Penjadwalan (HEFT)
+    # Buat scheduler untuk mendapatkan konfigurasi VM dan menjalankan HEFT
+    scheduler = TaskScheduler()
+    vms = scheduler.vms # Dapatkan daftar VM yang dimuat oleh scheduler
+    vms_dict = {vm.name: vm for vm in vms}
+
+    # Jalankan HEFT untuk mendapatkan penugasan terbaik
+    best_assignment = scheduler.run_heft_scheduler(tasks)
+    
+    # 3. Siapkan Eksekusi
+    results_list = []
+    
+    # Buat semaphore untuk setiap VM berdasarkan core CPU
+    vm_semaphores = {vm.name: asyncio.Semaphore(vm.cpu_cores) for vm in vms}
+    
+    # Buat satu HTTP client untuk semua request
+    async with httpx.AsyncClient() as client:
+        
+        # Siapkan semua coroutine tugas
+        all_task_coroutines = []
+        for task_id, vm_name in best_assignment.items():
+            if task_id not in tasks_dict:
+                print(f"Peringatan: task_id {task_id} dari HEFT tidak ada di tasks_dict.")
+                continue
+            if vm_name not in vms_dict:
+                print(f"Peringatan: vm_name {vm_name} dari HEFT tidak ada di vms_dict.")
+                continue
+
+            task = tasks_dict[task_id]
+            vm = vms_dict[vm_name]
+            sem = vm_semaphores[vm_name]
+            
+            all_task_coroutines.append(
+                execute_task_on_vm(task, vm, client, sem, results_list)
+            )
+            
+        print(f"\nMemulai eksekusi {len(all_task_coroutines)} tugas secara paralel...")
+        
+        # 4. Jalankan Semua Tugas dan Ukur Waktu Total
+        schedule_start_time = time.monotonic()
+        
+        await asyncio.gather(*all_task_coroutines)
+        
+        schedule_end_time = time.monotonic()
+        total_schedule_time = schedule_end_time - schedule_start_time
+        
+        print(f"\nSemua eksekusi tugas selesai dalam {total_schedule_time:.4f} detik.")
+    
+    # 5. Simpan Hasil dan Hitung Metrik
+    write_results_to_csv(results_list)
+    calculate_and_print_metrics(results_list, vms, total_schedule_time)
+
+if __name__ == "__main__":
+    asyncio.run(main())
