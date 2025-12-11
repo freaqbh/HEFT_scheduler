@@ -1,0 +1,126 @@
+--- Hasil Metrik --- shc
+
+Makespan              : 30.0940 s
+Throughput            : 0.6646 tasks/s
+Total CPU Time        : 242.7430 s
+Total Wait Time       : 61.9340 s
+Avg Execution Time    : 12.1372 s
+Imbalance Degree      : 1.2865
+Resource Utilization  : 53.7744%
+
+Makespan              : 62.3120 s
+Throughput            : 0.3210 tasks/s
+Total CPU Time        : 609.6270 s
+Total Wait Time       : 168.2210 s
+Avg Execution Time    : 30.4813 s
+Imbalance Degree      : 1.7292
+Resource Utilization  : 65.2231%
+
+Makespan              : 60.8900 s
+Throughput            : 0.3285 tasks/s
+Total CPU Time        : 545.4800 s
+Total Wait Time       : 236.9200 s
+Avg Execution Time    : 27.2740 s
+Imbalance Degree      : 1.2677
+Resource Utilization  : 59.7230%
+
+Makespan              : 48.7030 s
+Throughput            : 0.4107 tasks/s
+Total CPU Time        : 456.8500 s
+Total Wait Time       : 187.0810 s
+Avg Execution Time    : 22.8425 s
+Imbalance Degree      : 1.7078
+Resource Utilization  : 62.5355%
+
+Makespan              : 63.9840 s
+Throughput            : 0.3126 tasks/s
+Total CPU Time        : 588.6740 s
+Total Wait Time       : 242.9690 s
+Avg Execution Time    : 29.4337 s
+Imbalance Degree      : 1.1395
+Resource Utilization  : 61.3355%
+
+
+--- Hasil Metrik --- rr
+
+Makespan              : 116.6250 s
+Throughput            : 0.1629 tasks/s
+Total CPU Time        : 404.4420 s
+Total Wait Time       : 361.5030 s
+Avg Execution Time    : 21.2864 s
+Imbalance Degree      : 0.4378
+Resource Utilization  : 23.1192%
+
+Makespan              : 97.8280 s
+Throughput            : 0.1942 tasks/s
+Total CPU Time        : 229.5650 s
+Total Wait Time       : 250.6580 s
+Avg Execution Time    : 12.0824 s
+Imbalance Degree      : 0.6066
+Resource Utilization  : 15.6441%
+
+Makespan              : 134.9530 s
+Throughput            : 0.1408 tasks/s
+Total CPU Time        : 484.9050 s
+Total Wait Time       : 432.6250 s
+Avg Execution Time    : 25.5213 s
+Imbalance Degree      : 0.4889
+Resource Utilization  : 23.9543%
+
+Makespan              : 186.4220 s
+Throughput            : 0.0966 tasks/s
+Total CPU Time        : 342.7200 s
+Total Wait Time       : 367.5140 s
+Avg Execution Time    : 19.0400 s
+Imbalance Degree      : 1.4093
+Resource Utilization  : 12.2561%
+
+Makespan              : 97.0780 s
+Throughput            : 0.1957 tasks/s
+Total CPU Time        : 362.7340 s
+Total Wait Time       : 239.0620 s
+Avg Execution Time    : 19.0913 s
+Imbalance Degree      : 1.1949
+Resource Utilization  : 24.9101%
+
+--- Hasil Metrik --- fcfs
+
+Makespan              : 55.8750 s
+Throughput            : 0.3579 tasks/s
+Total CPU Time        : 474.0380 s
+Total Wait Time       : 57.5960 s
+Avg Execution Time    : 23.7019 s
+Imbalance Degree      : 2.7956
+Resource Utilization  : 56.5593%
+
+Makespan              : 41.0310 s
+Throughput            : 0.4874 tasks/s
+Total CPU Time        : 327.7110 s
+Total Wait Time       : 55.7520 s
+Avg Execution Time    : 16.3855 s
+Imbalance Degree      : 2.3634
+Resource Utilization  : 53.2461%
+
+Makespan              : 63.7190 s
+Throughput            : 0.3139 tasks/s
+Total CPU Time        : 560.8630 s
+Total Wait Time       : 56.5320 s
+Avg Execution Time    : 28.0431 s
+Imbalance Degree      : 2.6541
+Resource Utilization  : 58.6809%
+
+Makespan              : 35.1560 s
+Throughput            : 0.5689 tasks/s
+Total CPU Time        : 289.8550 s
+Total Wait Time       : 56.6550 s
+Avg Execution Time    : 14.4928 s
+Imbalance Degree      : 1.9844
+Resource Utilization  : 54.9655%
+
+Makespan              : 60.7350 s
+Throughput            : 0.3293 tasks/s
+Total CPU Time        : 518.7270 s
+Total Wait Time       : 54.3150 s
+Avg Execution Time    : 25.9363 s
+Imbalance Degree      : 2.9153
+Resource Utilization  : 56.9388%

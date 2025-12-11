@@ -1,0 +1,119 @@
+============ HEFT RANDOM_SIMPLE =================
+
+--- Hasil Metrik ---
+Total tugas selesai   : 50
+Makespan              : 60.3910 s
+Throughput            : 0.8279 tasks/s
+Total CPU Time        : 706.9980 s
+Total Wait Time       : 756.9760 s
+Avg Start Time (rel)  : 15.1561 s
+Avg Execution Time    : 14.1400 s
+Avg Finish Time (rel) : 29.2967 s
+Imbalance Degree      : 2.1363
+Resource Utilization  : 78.0467%
+
+--- Hasil Metrik ---
+Total tugas selesai   : 50
+Makespan              : 60.4220 s
+Throughput            : 0.8275 tasks/s
+Total CPU Time        : 704.0560 s
+Total Wait Time       : 743.0460 s
+Avg Start Time (rel)  : 14.8768 s
+Avg Execution Time    : 14.0811 s
+Avg Finish Time (rel) : 28.9583 s
+Imbalance Degree      : 2.1625
+Resource Utilization  : 77.6821%
+
+--- Hasil Metrik ---
+Total tugas selesai   : 50
+Makespan              : 60.2810 s
+Throughput            : 0.8294 tasks/s
+Total CPU Time        : 713.1980 s
+Total Wait Time       : 771.8820 s
+Avg Start Time (rel)  : 15.4511 s
+Avg Execution Time    : 14.2640 s
+Avg Finish Time (rel) : 29.7169 s
+Imbalance Degree      : 2.1324
+Resource Utilization  : 78.8748%
+
+================================================
+
+============ HEFT LOW-HIGH =================
+
+--- Hasil Metrik ---
+Total tugas selesai   : 30
+Makespan              : 66.3440 s
+Throughput            : 0.4522 tasks/s
+Total CPU Time        : 526.2970 s
+Total Wait Time       : 102.9660 s
+Avg Start Time (rel)  : 3.4434 s
+Avg Execution Time    : 17.5432 s
+Avg Finish Time (rel) : 20.9875 s
+Imbalance Degree      : 2.0612
+Resource Utilization  : 52.8857%
+
+--- Hasil Metrik ---
+Total tugas selesai   : 30
+Makespan              : 65.6250 s
+Throughput            : 0.4571 tasks/s
+Total CPU Time        : 513.1860 s
+Total Wait Time       : 60.4510 s
+Avg Start Time (rel)  : 2.0275 s
+Avg Execution Time    : 17.1062 s
+Avg Finish Time (rel) : 19.1354 s
+Imbalance Degree      : 2.0692
+Resource Utilization  : 52.1332%
+
+--- Hasil Metrik ---
+Total tugas selesai   : 30
+Makespan              : 65.1870 s
+Throughput            : 0.4602 tasks/s
+Total CPU Time        : 512.0830 s
+Total Wait Time       : 70.0210 s
+Avg Start Time (rel)  : 2.3439 s
+Avg Execution Time    : 17.0694 s
+Avg Finish Time (rel) : 19.4111 s
+Imbalance Degree      : 2.0532
+Resource Utilization  : 52.3707%
+
+============================================
+
+============ HEFT RANDOM_STRATIFIED =================
+
+--- Hasil Metrik ---
+Total tugas selesai   : 250
+Makespan              : 70.2500 s
+Throughput            : 3.5587 tasks/s
+Total CPU Time        : 552.0890 s
+Total Wait Time       : 5683.3740 s
+Avg Start Time (rel)  : 22.7399 s
+Avg Execution Time    : 2.2084 s
+Avg Finish Time (rel) : 24.9477 s
+Imbalance Degree      : 1.3708
+Resource Utilization  : 52.3928%
+
+--- Hasil Metrik ---
+Total tugas selesai   : 250
+Makespan              : 74.8590 s
+Throughput            : 3.3396 tasks/s
+Total CPU Time        : 556.7530 s
+Total Wait Time       : 5816.5910 s
+Avg Start Time (rel)  : 23.2752 s
+Avg Execution Time    : 2.2270 s
+Avg Finish Time (rel) : 25.5021 s
+Imbalance Degree      : 1.3513
+Resource Utilization  : 49.5824%
+
+--- Hasil Metrik ---
+Total tugas selesai   : 250
+Makespan              : 63.9530 s
+Throughput            : 3.9091 tasks/s
+Total CPU Time        : 544.2390 s
+Total Wait Time       : 5556.2710 s
+Avg Start Time (rel)  : 22.2354 s
+Avg Execution Time    : 2.1770 s
+Avg Finish Time (rel) : 24.4125 s
+Imbalance Degree      : 1.4195
+Resource Utilization  : 56.7332%
+
+==============================================
